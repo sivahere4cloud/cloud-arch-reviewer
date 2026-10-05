@@ -5,6 +5,7 @@ from cloud_arch_reviewer.image_utils import InvalidImageError
 from cloud_arch_reviewer.image_utils import image_to_data_url
 from cloud_arch_reviewer.llm_client import LLMClient
 from cloud_arch_reviewer.llm_client import LLMError
+from cloud_arch_reviewer.llm_client import Usage
 from cloud_arch_reviewer.logging_setup import setup_logging
 from cloud_arch_reviewer.prompts import load_prompt
 
@@ -36,13 +37,22 @@ def main() -> int:
         client = LLMClient(settings)
         instructions = build_instructions()
         review, usage = client.review_structured(instructions, data_url, USER_TEXT)
+
+        print(f"Average score: {review.average_score()} | risks: {len(review.risks)}")
+        print(usage.describe())
+        print()
+
+        narrative_instructions = load_prompt("narrative_prompt.md")
+        for item in client.stream_narrative(narrative_instructions, review):
+            if isinstance(item, Usage):
+                print()
+                print(item.describe())
+            else:
+                print(item, end="", flush=True)
     except (InvalidImageError, LLMError) as error:
         print(f"Error: {error}")
         return 1
 
-    print(review.model_dump_json(indent=2))
-    print(f"Average score: {review.average_score()}")
-    print(usage.describe())
     return 0
 
 

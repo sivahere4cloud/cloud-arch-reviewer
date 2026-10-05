@@ -1,5 +1,6 @@
 import logging
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -196,3 +197,51 @@ class LLMClient:
             raise LLMError("The model did not return a review. Try a clearer diagram.")
 
         return review, usage
+
+
+
+    def stream_narrative(
+        self,
+        instructions: str,
+        review: ArchitectureReview,
+    ) -> Iterator[str | Usage]:
+        review_json = review.model_dump_json(indent=2)
+        model = self._settings.openai_model
+        final_response = None
+
+        started = time.perf_counter()
+        try:
+            stream = self._client.responses.create(
+                model=model,
+                instructions=instructions,
+                input=review_json,
+                reasoning={"effort": self._settings.openai_reasoning_effort},
+                max_output_tokens=self._settings.max_output_tokens,
+                stream=True,
+            )
+            for event in stream:
+                if event.type == "response.output_text.delta":
+                    yield event.delta
+                elif event.type in ("response.completed", "response.incomplete"):
+                    final_response = event.response
+                elif event.type in ("response.failed", "error"):
+                    raise LLMError(
+                        "The model could not finish the written review. Please try again."
+                    )
+        except APIError as error:
+            raise translate_error(error) from error
+        latency = time.perf_counter() - started
+
+        if final_response is None:
+            raise LLMError("The written review ended unexpectedly. Please try again.")
+
+        request_id = getattr(stream, "_request_id", None)
+        usage = build_usage(final_response.usage, model, latency, request_id)
+        logger.info("Narrative finished: %s", usage.describe())
+        yield usage
+
+        if final_response.status == "incomplete":
+            raise LLMError(
+                "The written review was cut off before it finished. "
+                "Try again, or lower OPENAI_REASONING_EFFORT."
+            )
