@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr
     openai_model: str = "gpt-6-luna"
+    openai_reasoning_effort: str = "low"
+    max_output_tokens: int = 25000
     log_level: str = "INFO"
     request_timeout_seconds: float = 60.0
     max_retries: int = 3
