@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from cloud-arch-reviewer!")
+    from cloud_arch_reviewer.app import run
+
+    run()
