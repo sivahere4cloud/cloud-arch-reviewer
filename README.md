@@ -1,4 +1,5 @@
 # Cloud Architecture Reviewer
+<img width="1929" height="950" alt="linkedin post picture" src="https://github.com/user-attachments/assets/fd91133e-0c27-46d1-9e7d-7d84e041a879" />
 
 AI reviewer for AWS architecture diagrams. Upload a diagram and get a Well-Architected scorecard, prioritised risks and suggested fixes, powered by OpenAI vision and a Gradio UI.
 
