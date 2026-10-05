@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 from cloud_arch_reviewer.config import get_settings
 from cloud_arch_reviewer.image_utils import InvalidImageError
@@ -8,9 +9,12 @@ from cloud_arch_reviewer.llm_client import LLMError
 from cloud_arch_reviewer.llm_client import Usage
 from cloud_arch_reviewer.logging_setup import setup_logging
 from cloud_arch_reviewer.prompts import load_prompt
+from cloud_arch_reviewer.report import build_markdown_report
+from cloud_arch_reviewer.report import scorecard_rows
 
 PROMPT_FILES = ["system_prompt.md", "pillars.md", "few_shot_examples.md"]
 USER_TEXT = "Review this architecture diagram against the six Well-Architected pillars."
+REPORT_PATH = Path("samples") / "report.md"
 
 
 def build_instructions() -> str:
@@ -40,15 +44,28 @@ def main() -> int:
 
         print(f"Average score: {review.average_score()} | risks: {len(review.risks)}")
         print(usage.describe())
-        print()
 
+        usages = [usage]
+        narrative_parts = []
         narrative_instructions = load_prompt("narrative_prompt.md")
         for item in client.stream_narrative(narrative_instructions, review):
             if isinstance(item, Usage):
-                print()
-                print(item.describe())
+                usages.append(item)
             else:
-                print(item, end="", flush=True)
+                narrative_parts.append(item)
+
+        print(f"Narrative arrived in {len(narrative_parts)} chunks")
+        print(usages[-1].describe())
+        print()
+
+        for row in scorecard_rows(review):
+            print(row[0], row[1])
+
+        narrative = "".join(narrative_parts)
+        report = build_markdown_report(review, narrative, usages)
+        REPORT_PATH.parent.mkdir(exist_ok=True)
+        REPORT_PATH.write_text(report, encoding="utf-8")
+        print(f"Report saved to {REPORT_PATH} ({len(report.splitlines())} lines)")
     except (InvalidImageError, LLMError) as error:
         print(f"Error: {error}")
         return 1
