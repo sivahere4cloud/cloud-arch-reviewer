@@ -1,7 +1,7 @@
 import logging
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-NOISY_LOGGERS = ["httpx", "httpcore"]
+NOISY_LOGGERS = ["httpx", "httpx2", "httpcore"]
 
 
 def setup_logging(level: str = "INFO") -> None:
