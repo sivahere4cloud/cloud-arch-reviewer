@@ -2,74 +2,55 @@ import sys
 from pathlib import Path
 
 from cloud_arch_reviewer.config import get_settings
-from cloud_arch_reviewer.image_utils import InvalidImageError
-from cloud_arch_reviewer.image_utils import image_to_data_url
-from cloud_arch_reviewer.llm_client import LLMClient
-from cloud_arch_reviewer.llm_client import LLMError
-from cloud_arch_reviewer.llm_client import Usage
 from cloud_arch_reviewer.logging_setup import setup_logging
-from cloud_arch_reviewer.prompts import load_prompt
 from cloud_arch_reviewer.report import build_markdown_report
-from cloud_arch_reviewer.report import scorecard_rows
+from cloud_arch_reviewer.reviewer import USER_FACING_ERRORS
+from cloud_arch_reviewer.reviewer import ReviewState
+from cloud_arch_reviewer.reviewer import Reviewer
 
-PROMPT_FILES = ["system_prompt.md", "pillars.md", "few_shot_examples.md"]
-USER_TEXT = "Review this architecture diagram against the six Well-Architected pillars."
 REPORT_PATH = Path("samples") / "report.md"
 
 
-def build_instructions() -> str:
-    parts = []
-    for name in PROMPT_FILES:
-        text = load_prompt(name)
-        parts.append(text)
-
-    instructions = "\n\n".join(parts)
-    return instructions
-
-
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: uv run python scripts/smoke_test.py samples/image_1.png")
+    if len(sys.argv) < 2:
+        print('Usage: uv run python scripts/smoke_test.py samples/image_1.png "optional description"')
         return 2
 
     image_path = sys.argv[1]
+    description = " ".join(sys.argv[2:])
     settings = get_settings()
     setup_logging(settings.log_level)
 
+    final_state: ReviewState | None = None
+    update_count = 0
+    last_stage = ""
+
     try:
-        data_url = image_to_data_url(image_path, settings.max_image_mb)
-        client = LLMClient(settings)
-        instructions = build_instructions()
-        review, usage = client.review_structured(instructions, data_url, USER_TEXT)
-
-        print(f"Average score: {review.average_score()} | risks: {len(review.risks)}")
-        print(usage.describe())
-
-        usages = [usage]
-        narrative_parts = []
-        narrative_instructions = load_prompt("narrative_prompt.md")
-        for item in client.stream_narrative(narrative_instructions, review):
-            if isinstance(item, Usage):
-                usages.append(item)
-            else:
-                narrative_parts.append(item)
-
-        print(f"Narrative arrived in {len(narrative_parts)} chunks")
-        print(usages[-1].describe())
-        print()
-
-        for row in scorecard_rows(review):
-            print(row[0], row[1])
-
-        narrative = "".join(narrative_parts)
-        report = build_markdown_report(review, narrative, usages)
-        REPORT_PATH.parent.mkdir(exist_ok=True)
-        REPORT_PATH.write_text(report, encoding="utf-8")
-        print(f"Report saved to {REPORT_PATH} ({len(report.splitlines())} lines)")
-    except (InvalidImageError, LLMError) as error:
+        reviewer = Reviewer(settings)
+        for state in reviewer.review_diagram(image_path, description):
+            update_count = update_count + 1
+            if state.stage != last_stage:
+                print(f"[stage] {state.stage}")
+                last_stage = state.stage
+            final_state = state
+    except USER_FACING_ERRORS as error:
         print(f"Error: {error}")
         return 1
 
+    if final_state is None or final_state.review is None:
+        print("Error: no review was produced.")
+        return 1
+
+    print(f"{update_count} updates")
+    print(f"Average score: {final_state.review.average_score()}")
+    for usage in final_state.usages:
+        print(usage.describe())
+
+    usages = list(final_state.usages)
+    report = build_markdown_report(final_state.review, final_state.narrative, usages)
+    REPORT_PATH.parent.mkdir(exist_ok=True)
+    REPORT_PATH.write_text(report, encoding="utf-8")
+    print(f"Report saved to {REPORT_PATH} ({len(report.splitlines())} lines)")
     return 0
 
 
